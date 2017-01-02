@@ -11,7 +11,7 @@ import (
 
 func main() {
 	var port = flag.String("port", "18080", "port")
-	var verbose = flag.Bool("verbose", false, "verbose")
+	var verbose = flag.Bool("v", false, "verbose")
 	var user = flag.String("user", "goixy", "user")
 	var password = flag.String("password", "goixy-secret", "password")
 	flag.Usage = goixyUsage
@@ -19,12 +19,17 @@ func main() {
 
 	proxy := goproxy.NewProxyHttpServer()
 	proxy.Verbose = *verbose
-	auth_handler := auth.BasicConnect(
+	auth_conn := auth.BasicConnect(
 		"goixy v0.1.0",
 		func(u, p string) bool {
 			return u == *user && p == *password
 	})
-	proxy.OnRequest().HandleConnect(auth_handler)
+	proxy.OnRequest().HandleConnect(auth_conn)
+	auth_do := auth.Basic(
+		"my_realm", func(u, p string) bool {
+			return u == *user && p == *password
+	})
+	proxy.OnRequest().Do(auth_do)
 	fmt.Printf("Listen on port: %s... \n", *port)
 	http.ListenAndServe(":" + *port, proxy)
 }

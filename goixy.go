@@ -25,7 +25,7 @@ func main() {
 	rhost := flag.String("rhost", "", "remote host")
 	rport := flag.String("rport", "", "remote port")
 	flag.Usage = func() {
-        fmt.Printf("lightsocks [flags]\nwhere flags are:\n")
+        fmt.Printf("goixy [flags]\nwhere flags are:\n")
         flag.PrintDefaults()
     }
     flag.Parse()

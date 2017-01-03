@@ -1,10 +1,6 @@
 # Goixy
 An HTTP/SOCKS5 Proxy in Go
 
-## how it works
-
-![https://github.com/mitnk/goixy/blob/master/goixy-lightsocks.png](https://github.com/mitnk/goixy/blob/master/goixy-lightsocks.png)
-
 ## install
 
 ```

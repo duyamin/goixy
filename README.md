@@ -1,5 +1,5 @@
 # Goixy
-An HTTP Proxy Server in Go
+An HTTP/SOCKS5 Proxy in Go
 
 ## how it works
 

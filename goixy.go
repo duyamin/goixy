@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/url"
+	"os"
 	"os/user"
 	"path"
 	"regexp"
@@ -19,30 +20,41 @@ import (
 	"github.com/mitnk/goutils/encrypt"
 )
 
-var version = "1.0.0"
+var VERSION = "1.2.0"
+var KEY = getKey()
 var countConnected = 0
+var DEBUG = false
+var VERBOSE = false
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
 	rhost := flag.String("rhost", "", "remote host")
 	rport := flag.String("rport", "", "remote port")
+	debug := flag.Bool("v", false, "verbose")
+	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
-		fmt.Printf("goixy [flags]\nwhere flags are:\n")
+		fmt.Printf("Usage of goixy v%s\n", VERSION)
+		fmt.Printf("goixy [flags]\n")
 		flag.PrintDefaults()
+		os.Exit(0)
 	}
 	flag.Parse()
-
 	if *rhost == "" || *rport == "" {
 		fmt.Printf("You need set rhost and rport\n")
 		return
 	}
+	DEBUG = *debug
+	VERBOSE = *verbose
 
 	local, err := net.Listen("tcp", *host+":"+*port)
-	check(err)
+	if err != nil {
+		fmt.Printf("net listen: %v\r", err)
+		os.Exit(2)
+	}
 	defer local.Close()
 
-	info("goixy v%s", version)
+	info("goixy v%s", VERSION)
 	info("remote: %s:%s", *rhost, *rport)
 	info("listen on port: %s:%s", *host, *port)
 
@@ -66,7 +78,7 @@ func handleClient(client net.Conn, rhost, rport string) {
 	data := make([]byte, 1)
 	n, err := client.Read(data)
 	if err != nil || n != 1 {
-		fmt.Printf("cannot read init data from client.\n")
+		info("cannot read init data from client")
 		return
 	}
 	if data[0] == 5 {
@@ -74,7 +86,7 @@ func handleClient(client net.Conn, rhost, rport string) {
 	} else if data[0] > 5 {
 		handleHTTP(client, rhost, rport, data[0])
 	} else {
-		fmt.Printf("Error: only support HTTP and Socksv5")
+		info("Error: only support HTTP and Socksv5")
 	}
 }
 
@@ -82,17 +94,17 @@ func handleSocks(client net.Conn, rhost, rport string) {
 	buffer := make([]byte, 1)
 	_, err := io.ReadFull(client, buffer)
 	if err != nil {
-		fmt.Printf("cannot read from client")
+		info("cannot read from client")
 		return
 	}
 	buffer = make([]byte, buffer[0])
 	_, err = io.ReadFull(client, buffer)
 	if err != nil {
-		fmt.Printf("cannot read from client")
+		info("cannot read from client")
 		return
 	}
 	if !byteInArray(0, buffer) {
-		fmt.Printf("client not support bare connect")
+		info("client not support bare connect")
 		return
 	}
 
@@ -102,35 +114,35 @@ func handleSocks(client net.Conn, rhost, rport string) {
 	buffer = make([]byte, 4)
 	_, err = io.ReadFull(client, buffer)
 	if err != nil {
-		fmt.Printf("failed to read (ver, cmd, rsv, atyp) from client")
+		info("failed to read (ver, cmd, rsv, atyp) from client")
 		return
 	}
 	ver, cmd, atyp := buffer[0], buffer[1], buffer[3]
 	if ver != 5 {
-		fmt.Printf("ver should be 5, got %v\n", ver)
+		info("ver should be 5, got %v", ver)
 		return
 	}
 	// 1: connect 2: bind
 	if cmd != 1 && cmd != 2 {
-		fmt.Printf("bad cmd:%v\n", cmd)
+		info("bad cmd:%v", cmd)
 		return
 	}
 	shost := ""
 	sport := ""
 	if atyp == ATYP_IPV6 {
-		fmt.Printf("do not support ipv6 yet\n")
+		info("do not support ipv6 yet")
 		return
 	} else if atyp == ATYP_DOMAIN {
 		buffer = make([]byte, 1)
 		_, err = io.ReadFull(client, buffer)
 		if err != nil {
-			fmt.Printf("cannot read from client")
+			info("cannot read from client")
 			return
 		}
 		buffer = make([]byte, buffer[0])
 		_, err = io.ReadFull(client, buffer)
 		if err != nil {
-			fmt.Printf("cannot read from client")
+			info("cannot read from client")
 			return
 		}
 		shost = string(buffer)
@@ -138,19 +150,19 @@ func handleSocks(client net.Conn, rhost, rport string) {
 		buffer = make([]byte, 4)
 		_, err = io.ReadFull(client, buffer)
 		if err != nil {
-			fmt.Printf("cannot read from client")
+			info("cannot read from client")
 			return
 		}
 		shost = net.IP(buffer).String()
 	} else {
-		fmt.Printf("bad atyp: %v\n", atyp)
+		info("bad atyp: %v", atyp)
 		return
 	}
 
 	buffer = make([]byte, 2)
 	_, err = io.ReadFull(client, buffer)
 	if err != nil {
-		fmt.Printf("cannot read port from client")
+		info("cannot read port from client")
 		return
 	}
 	sport = fmt.Sprintf("%d", binary.BigEndian.Uint16(buffer))
@@ -167,7 +179,7 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 	nDataInit, err := client.Read(dataInit[1:])
 	nDataInit = nDataInit + 1 // plus firstByte
 	if err != nil {
-		fmt.Printf("cannot read init data from client.\n")
+		info("cannot read init data from client.")
 		return
 	}
 	isForHTTPS := strings.HasPrefix(string(dataInit[:nDataInit]), "CONNECT")
@@ -181,7 +193,7 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 	}
 	u, err := url.Parse(s)
 	if err != nil {
-		fmt.Printf("bad url: %s", s)
+		info("bad url: %s", s)
 		return
 	}
 	sport := ""
@@ -201,8 +213,7 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 	if isForHTTPS {
 		d2c = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	} else {
-		key := getKey()
-		dataInit := encrypt.Encrypt(dataInit[:nDataInit], key[:])
+		dataInit := encrypt.Encrypt(dataInit[:nDataInit], KEY)
 		dataInitLen := make([]byte, 2)
 		binary.BigEndian.PutUint16(dataInitLen, uint16(len(dataInit)))
 		d2r = append(dataInitLen, dataInit...)
@@ -213,15 +224,20 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r []byte) {
 	remote, err := net.Dial("tcp", rhost+":"+rport)
 	if err != nil {
-		fmt.Printf("cannot connect to remote: %s:%s\n", rhost, rport)
+		info("cannot connect to remote: %s:%s", rhost, rport)
 		return
 	}
 	defer remote.Close()
 	info("connected to remote: %s", remote.RemoteAddr())
 
-	key := getKey()
+	bytesCheck := make([]byte, 8)
+	copy(bytesCheck, KEY[8:16])
+	bytesCheck = encrypt.Encrypt(bytesCheck, KEY)
+	remote.Write([]byte{byte(len(bytesCheck))})
+	remote.Write(bytesCheck)
+
 	bytesHost := []byte(shost)
-	bytesHost = encrypt.Encrypt(bytesHost, key[:])
+	bytesHost = encrypt.Encrypt(bytesHost, KEY)
 	remote.Write([]byte{byte(len(bytesHost))})
 	remote.Write(bytesHost)
 
@@ -241,7 +257,7 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 	}
 
 	go readDataFromClient(ch_client, ch_remote, client)
-	go readDataFromRemote(ch_remote, remote, key[:])
+	go readDataFromRemote(ch_remote, remote)
 
 	shouldStop := false
 	for {
@@ -253,24 +269,24 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 		case data := <-ch_remote:
 			if data == nil {
 				remote.Close()
-				info("remote closed.")
+				debug("remote closed")
+				shouldStop = true
 				break
 			}
 			client.Write(data)
 		case di := <-ch_client:
 			if di.data == nil {
 				client.Close()
-				info("client closed.")
+				debug("client closed")
 				shouldStop = true
 				break
 			}
-			info("received %d bytes from client", di.size)
-			buffer := encrypt.Encrypt(di.data[:di.size], key[:])
+			buffer := encrypt.Encrypt(di.data[:di.size], KEY)
 			b := make([]byte, 2)
 			binary.BigEndian.PutUint16(b, uint16(len(buffer)))
 			remote.Write(b)
 			remote.Write(buffer)
-			info("sent %d bytes to remote", len(buffer))
+			debug("sent %d bytes to remote", len(buffer))
 		}
 	}
 }
@@ -284,12 +300,13 @@ func readDataFromClient(ch chan DataInfo, ch2 chan []byte, conn net.Conn) {
 			ch2 <- nil
 			return
 		}
-		info("received %d bytes from client", n)
+		debug("received %d bytes from client", n)
+		verbose("client: %s", data[:n])
 		ch <- DataInfo{data, n}
 	}
 }
 
-func readDataFromRemote(ch chan []byte, conn net.Conn, key []byte) {
+func readDataFromRemote(ch chan []byte, conn net.Conn) {
 	for {
 		buffer := make([]byte, 2)
 		_, err := io.ReadFull(conn, buffer)
@@ -304,37 +321,51 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, key []byte) {
 			ch <- nil
 			return
 		}
-		data, err := encrypt.Decrypt(buffer, key)
+		data, err := encrypt.Decrypt(buffer, KEY)
 		if err != nil {
-			fmt.Printf("ERROR: cannot decrypt data from client.")
+			info("ERROR: cannot decrypt data from client")
 			ch <- nil
 			return
 		}
-		info("received %d bytes from remote", len(data))
+		debug("received %d bytes from remote", len(data))
+		verbose("remote: %s", data)
 		ch <- data
 	}
 }
 
-func getKey() [32]byte {
+func getKey() []byte {
 	usr, err := user.Current()
-	check(err)
+	if err != nil {
+		fmt.Printf("user current: %v\r", err)
+		os.Exit(2)
+	}
 	fileKey := path.Join(usr.HomeDir, ".lightsockskey")
 	data, err := ioutil.ReadFile(fileKey)
+	if err != nil {
+		fmt.Printf("failed to load key file: %v\r", err)
+		os.Exit(1)
+	}
 	s := strings.TrimSpace(string(data))
-	check(err)
-	return sha256.Sum256([]byte(s))
+	sum := sha256.Sum256([]byte(s))
+	return sum[:]
 }
 
-func check(err error) {
-	if err != nil {
-		panic(err)
+func info(format string, a ...interface{}) {
+	ts := time.Now().Format("2006-01-02 15:04:05")
+	prefix := fmt.Sprintf("[%s][%d] ", ts, countConnected)
+	fmt.Printf(prefix+format+"\n", a...)
+}
+
+func debug(format string, a ...interface{}) {
+	if DEBUG || VERBOSE {
+		info(format, a...)
 	}
 }
 
-func info(format string, a ...interface{}) (n int, err error) {
-	ts := time.Now().Format("2006-01-02 15:04:05")
-	prefix := fmt.Sprintf("[%s][%d] ", ts, countConnected)
-	return fmt.Printf(prefix+format+"\n", a...)
+func verbose(format string, a ...interface{}) {
+	if VERBOSE {
+		info(format, a...)
+	}
 }
 
 func byteInArray(b byte, A []byte) bool {

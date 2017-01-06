@@ -339,13 +339,13 @@ func readDataFromRemote(ch chan []byte, conn net.Conn) {
 func getKey() []byte {
 	usr, err := user.Current()
 	if err != nil {
-		fmt.Printf("user current: %v\r", err)
+		fmt.Printf("user current: %v\n", err)
 		os.Exit(2)
 	}
 	fileKey := path.Join(usr.HomeDir, ".lightsockskey")
 	data, err := ioutil.ReadFile(fileKey)
 	if err != nil {
-		fmt.Printf("failed to load key file: %v\r", err)
+		fmt.Printf("failed to load key file: %v\n", err)
 		os.Exit(1)
 	}
 	s := strings.TrimSpace(string(data))

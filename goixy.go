@@ -20,7 +20,7 @@ import (
 	"github.com/mitnk/goutils/encrypt"
 )
 
-var VERSION = "1.2.1"
+var VERSION = "1.3.0"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
@@ -82,8 +82,10 @@ func handleClient(client net.Conn, rhost, rport string) {
 		return
 	}
 	if data[0] == 5 {
+		verbose("handle with socks v5")
 		handleSocks(client, rhost, rport)
 	} else if data[0] > 5 {
+		verbose("handle with http")
 		handleHTTP(client, rhost, rport, data[0])
 	} else {
 		info("Error: only support HTTP and Socksv5")
@@ -183,6 +185,8 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 		return
 	}
 	isForHTTPS := strings.HasPrefix(string(dataInit[:nDataInit]), "CONNECT")
+	verbose("isForHTTPS: %v", isForHTTPS)
+	verbose("got content from client:\n%s", dataInit[:nDataInit])
 
 	endor := " HTTP/"
 	re := regexp.MustCompile(" .*" + endor)
@@ -213,7 +217,12 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 	if isForHTTPS {
 		d2c = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	} else {
-		dataInit := encrypt.Encrypt(dataInit[:nDataInit], KEY)
+		// dataInit := encrypt.Encrypt(dataInit[:nDataInit], KEY)
+		reg1, _ := regexp.Compile("^HEAD https?:..[^/]+/")
+		path := reg1.ReplaceAllString(string(dataInit[:nDataInit]), "HEAD /")
+		reg2, _ := regexp.Compile("^GET https?:..[^/]+/")
+		path = reg2.ReplaceAllString(string(path), "GET /")
+		dataInit := encrypt.Encrypt([]byte(path), KEY)
 		dataInitLen := make([]byte, 2)
 		binary.BigEndian.PutUint16(dataInitLen, uint16(len(dataInit)))
 		d2r = append(dataInitLen, dataInit...)

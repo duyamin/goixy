@@ -20,7 +20,7 @@ import (
 	"github.com/mitnk/goutils/encrypt"
 )
 
-var VERSION = "1.3.0"
+var VERSION = "1.3.1"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
@@ -191,6 +191,11 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 	endor := " HTTP/"
 	re := regexp.MustCompile(" .*" + endor)
 	s := re.FindString(string(dataInit[:nDataInit]))
+	if s == "" {
+		// no url found. not valid http proxy protocol?
+		return
+	}
+
 	s = s[1 : len(s)-len(endor)]
 	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
 		s = "http://" + s

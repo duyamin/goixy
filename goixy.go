@@ -20,7 +20,7 @@ import (
 	"github.com/mitnk/goutils/encrypt"
 )
 
-var VERSION = "1.3.1"
+var VERSION = "1.3.3"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
@@ -301,7 +301,7 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 			remote.Write(b)
 			remote.Write(buffer)
 			debug("sent %d bytes to remote", len(buffer))
-		case <-time.After(60 * time.Second):
+		case <-time.After(60 * 60 * time.Second):
 			info("timeout on %s:%s", shost, sport)
 			return
 		}

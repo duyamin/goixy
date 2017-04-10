@@ -24,4 +24,5 @@ _testmain.go
 *.prof
 
 goixy
+goixy-*
 default.profraw

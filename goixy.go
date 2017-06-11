@@ -18,13 +18,17 @@ import (
 	"time"
 
 	"github.com/mitnk/goutils/encrypt"
+	"github.com/orcaman/concurrent-map"
 )
 
-var VERSION = "1.3.3"
+var VERSION = "1.5.0"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
 var VERBOSE = false
+
+// map: server -> bytes received
+var Servers = cmap.New()
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
@@ -58,6 +62,7 @@ func main() {
 	info("remote: %s:%s", *rhost, *rport)
 	info("listen on port: %s:%s", *host, *port)
 
+	go printServersInfo()
 	for {
 		client, err := local.Accept()
 		if err != nil {
@@ -67,12 +72,55 @@ func main() {
 	}
 }
 
+func printServersInfo() {
+	for {
+		select {
+		case <-time.After(3600 * time.Second):
+			ts_now := time.Now().Unix()
+			keys := Servers.Keys()
+			info("[REPORT] We have %d servers connected", len(keys))
+			for i, key := range keys {
+				if tmp, ok := Servers.Get(key); ok {
+					bytes := int64(0)
+					ts_span := int64(0)
+					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
+						bytes = tmp.(int64)
+					}
+					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
+						ts_span = ts_now - tmp.(int64)
+					}
+
+					str_bytes := ""
+					if bytes > 1024 * 1024 * 1024 {
+						str_bytes += fmt.Sprintf("%.2fG", float64(bytes / (1024.0 * 1024.0 * 1024)))
+					} else if bytes > 1024 * 1024 {
+						str_bytes += fmt.Sprintf("%.2fM", float64(bytes / (1024.0 * 1024.0)))
+					} else {
+						str_bytes += fmt.Sprintf("%.2fK", float64(bytes * 1.0 / 1024.0))
+					}
+
+					str_span := ""
+					if ts_span > 3600 {
+						str_span += fmt.Sprintf("%dh", ts_span/3600)
+					}
+					if ts_span > 60 {
+						str_span += fmt.Sprintf("%dm", (ts_span % 3600) / 60)
+					}
+					str_span += fmt.Sprintf("%ds", ts_span % 60)
+					info("[REPORT] [%d][%s] %s: %s", i, str_span, key, str_bytes)
+				}
+			}
+		}
+	}
+}
+
 func handleClient(client net.Conn, rhost, rport string) {
 	countConnected += 1
 	defer func() {
+		client.Close()
 		countConnected -= 1
+		debug("closed client")
 	}()
-	defer client.Close()
 	info("connected from %v.", client.RemoteAddr())
 
 	data := make([]byte, 1)
@@ -241,8 +289,14 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 		info("cannot connect to remote: %s:%s", rhost, rport)
 		return
 	}
-	defer remote.Close()
-	info("connected to remote: %s", remote.RemoteAddr())
+	keyServer := fmt.Sprintf("%s:%s", shost, sport)
+	initServers(keyServer, 0)
+	defer func() {
+		remote.Close()
+		deleteServers(fmt.Sprintf("%s:%s", shost, sport))
+		debug("closed remote for %s:%s", shost, sport)
+	}()
+	debug("connected to remote: %s", remote.RemoteAddr())
 
 	bytesCheck := make([]byte, 8)
 	copy(bytesCheck, KEY[8:16])
@@ -271,7 +325,7 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 	}
 
 	go readDataFromClient(ch_client, ch_remote, client)
-	go readDataFromRemote(ch_remote, remote)
+	go readDataFromRemote(ch_remote, remote, shost, sport)
 
 	shouldStop := false
 	for {
@@ -282,16 +336,12 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 		select {
 		case data := <-ch_remote:
 			if data == nil {
-				remote.Close()
-				debug("remote closed")
 				shouldStop = true
 				break
 			}
 			client.Write(data)
 		case di := <-ch_client:
 			if di.data == nil {
-				client.Close()
-				debug("client closed")
 				shouldStop = true
 				break
 			}
@@ -300,9 +350,8 @@ func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r [
 			binary.BigEndian.PutUint16(b, uint16(len(buffer)))
 			remote.Write(b)
 			remote.Write(buffer)
-			debug("sent %d bytes to remote", len(buffer))
-		case <-time.After(60 * 60 * time.Second):
-			info("timeout on %s:%s", shost, sport)
+		case <-time.After(60 * time.Second):
+			debug("timeout on %s:%s", shost, sport)
 			return
 		}
 	}
@@ -323,7 +372,7 @@ func readDataFromClient(ch chan DataInfo, ch2 chan []byte, conn net.Conn) {
 	}
 }
 
-func readDataFromRemote(ch chan []byte, conn net.Conn) {
+func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string) {
 	for {
 		buffer := make([]byte, 2)
 		_, err := io.ReadFull(conn, buffer)
@@ -332,6 +381,10 @@ func readDataFromRemote(ch chan []byte, conn net.Conn) {
 			return
 		}
 		size := binary.BigEndian.Uint16(buffer)
+
+		keyServer := fmt.Sprintf("%s:%s", shost, sport)
+		incrServers(keyServer, int64(size))
+
 		buffer = make([]byte, size)
 		_, err = io.ReadFull(conn, buffer)
 		if err != nil {
@@ -344,7 +397,7 @@ func readDataFromRemote(ch chan []byte, conn net.Conn) {
 			ch <- nil
 			return
 		}
-		debug("received %d bytes from remote", len(data))
+		debug("[%s:%s] received %d bytes", shost, sport, len(data))
 		verbose("remote: %s", data)
 		ch <- data
 	}
@@ -392,6 +445,28 @@ func byteInArray(b byte, A []byte) bool {
 		}
 	}
 	return false
+}
+
+func initServers(key string, bytes int64) {
+	m := cmap.New()
+	now := time.Now()
+	m.Set("ts", now.Unix())
+	m.Set("bytes", bytes)
+	Servers.Set(key, m)
+}
+
+func incrServers(key string, n int64) {
+	if m, ok := Servers.Get(key); ok {
+		if tmp, ok := m.(cmap.ConcurrentMap).Get("bytes"); ok {
+			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64) + n)
+		}
+	} else {
+		initServers(key, n)
+	}
+}
+
+func deleteServers(key string) {
+	Servers.Remove(key)
 }
 
 type DataInfo struct {

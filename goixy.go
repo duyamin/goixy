@@ -21,7 +21,7 @@ import (
 	"github.com/orcaman/concurrent-map"
 )
 
-var VERSION = "1.5.0"
+var VERSION = "1.5.1"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
@@ -75,7 +75,7 @@ func main() {
 func printServersInfo() {
 	for {
 		select {
-		case <-time.After(3600 * time.Second):
+		case <-time.After(600 * time.Second):
 			ts_now := time.Now().Unix()
 			keys := Servers.Keys()
 			info("[REPORT] We have %d servers connected", len(keys))

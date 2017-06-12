@@ -23,18 +23,20 @@ import (
 )
 
 type GoixyConfig struct {
-	Key        string
 	Host       string
 	Port       string
-	Servers    []string
+	Key        string
+	WhiteList  []string
 	DirectHost string
 	DirectPort string
+	DirectKey  string
 }
 
 var gconfig GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.0"
-var KEY = getKey()
+var VERSION = "1.6.1"
+var KEY = []byte("")
+var DIRECT_KEY = []byte("")
 var countConnected = 0
 var DEBUG = false
 var VERBOSE = false
@@ -56,9 +58,7 @@ func main() {
 	flag.Parse()
 	DEBUG = *debug
 	VERBOSE = *verbose
-
 	loadRouterConfig()
-	KEY = getKey()
 
 	local, err := net.Listen("tcp", *host+":"+*port)
 	if err != nil {
@@ -228,7 +228,8 @@ func handleSocks(client net.Conn) {
 
 	// reply to client to estanblish the socks v5 connection
 	client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-	handleRemote(client, shost, sport, nil, nil)
+	rhost, rport, key := getRemoteInfo(shost)
+	handleRemote(client, shost, sport, rhost, rport, nil, nil, key)
 }
 
 func handleHTTP(client net.Conn, firstByte byte) {
@@ -272,36 +273,43 @@ func handleHTTP(client net.Conn, firstByte byte) {
 		shost = u.Host
 	}
 	info("server %s:%s", shost, sport)
+	rhost, rport, key := getRemoteInfo(shost)
 
 	var d2c []byte
 	var d2r []byte
 	if isForHTTPS {
 		d2c = []byte("HTTP/1.0 200 OK\r\n\r\n")
 	} else {
-		// dataInit := encrypt.Encrypt(dataInit[:nDataInit], KEY)
+		// dataInit := encrypt.Encrypt(dataInit[:nDataInit], key)
 		reg1, _ := regexp.Compile("^HEAD https?:..[^/]+/")
 		path := reg1.ReplaceAllString(string(dataInit[:nDataInit]), "HEAD /")
 		reg2, _ := regexp.Compile("^GET https?:..[^/]+/")
 		path = reg2.ReplaceAllString(string(path), "GET /")
-		dataInit := encrypt.Encrypt([]byte(path), KEY)
+		dataInit := encrypt.Encrypt([]byte(path), key)
 		dataInitLen := make([]byte, 2)
 		binary.BigEndian.PutUint16(dataInitLen, uint16(len(dataInit)))
 		d2r = append(dataInitLen, dataInit...)
 	}
-	handleRemote(client, shost, sport, d2c, d2r)
+	handleRemote(client, shost, sport, rhost, rport, d2c, d2r, key)
 }
 
-func handleRemote(client net.Conn, shost, sport string, d2c, d2r []byte) {
+func getRemoteInfo(shost string) (string, string, []byte) {
 	rhost := ""
 	rport := ""
+	key := []byte("")
 	if serverInList(shost) {
 		rhost = gconfig.Host
 		rport = gconfig.Port
+		key = KEY
 	} else {
 		rhost = gconfig.DirectHost
 		rport = gconfig.DirectPort
+		key = DIRECT_KEY
 	}
+	return rhost, rport, key
+}
 
+func handleRemote(client net.Conn, shost, sport, rhost, rport string, d2c, d2r, key []byte) {
 	remote, err := net.Dial("tcp", rhost+":"+rport)
 	if err != nil {
 		info("cannot connect to remote: %s:%s", rhost, rport)
@@ -317,13 +325,13 @@ func handleRemote(client net.Conn, shost, sport string, d2c, d2r []byte) {
 	debug("connected to remote: %s", remote.RemoteAddr())
 
 	bytesCheck := make([]byte, 8)
-	copy(bytesCheck, KEY[8:16])
-	bytesCheck = encrypt.Encrypt(bytesCheck, KEY)
+	copy(bytesCheck, key[8:16])
+	bytesCheck = encrypt.Encrypt(bytesCheck, key)
 	remote.Write([]byte{byte(len(bytesCheck))})
 	remote.Write(bytesCheck)
 
 	bytesHost := []byte(shost)
-	bytesHost = encrypt.Encrypt(bytesHost, KEY)
+	bytesHost = encrypt.Encrypt(bytesHost, key)
 	remote.Write([]byte{byte(len(bytesHost))})
 	remote.Write(bytesHost)
 
@@ -343,7 +351,7 @@ func handleRemote(client net.Conn, shost, sport string, d2c, d2r []byte) {
 	}
 
 	go readDataFromClient(ch_client, ch_remote, client)
-	go readDataFromRemote(ch_remote, remote, shost, sport)
+	go readDataFromRemote(ch_remote, remote, shost, sport, key)
 
 	shouldStop := false
 	for {
@@ -363,7 +371,7 @@ func handleRemote(client net.Conn, shost, sport string, d2c, d2r []byte) {
 				shouldStop = true
 				break
 			}
-			buffer := encrypt.Encrypt(di.data[:di.size], KEY)
+			buffer := encrypt.Encrypt(di.data[:di.size], key)
 			b := make([]byte, 2)
 			binary.BigEndian.PutUint16(b, uint16(len(buffer)))
 			remote.Write(b)
@@ -390,7 +398,7 @@ func readDataFromClient(ch chan DataInfo, ch2 chan []byte, conn net.Conn) {
 	}
 }
 
-func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string) {
+func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string, key []byte) {
 	for {
 		buffer := make([]byte, 2)
 		_, err := io.ReadFull(conn, buffer)
@@ -409,7 +417,7 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string) {
 			ch <- nil
 			return
 		}
-		data, err := encrypt.Decrypt(buffer, KEY)
+		data, err := encrypt.Decrypt(buffer, key)
 		if err != nil {
 			info("ERROR: cannot decrypt data from client")
 			ch <- nil
@@ -455,15 +463,6 @@ func getRouterConfig() []byte {
 		os.Exit(1)
 	}
 	return data
-}
-
-func getKey() []byte {
-	if gconfig.Key == "" {
-		return nil
-	}
-	s := strings.TrimSpace(gconfig.Key)
-	sum := sha256.Sum256([]byte(s))
-	return sum[:]
 }
 
 func info(format string, a ...interface{}) {
@@ -525,12 +524,24 @@ func loadRouterConfig() {
 		fmt.Printf("Invalid Goixy Config: %v\n", err)
 		os.Exit(2)
 	}
+
+	// init keys
+	s := strings.TrimSpace(gconfig.Key)
+	_tmp := sha256.Sum256([]byte(s))
+	KEY = _tmp[:]
+	if gconfig.DirectKey != "" {
+		s = strings.TrimSpace(gconfig.DirectKey)
+		_tmp = sha256.Sum256([]byte(s))
+		DIRECT_KEY = _tmp[:]
+	} else {
+		DIRECT_KEY = KEY
+	}
 }
 
-func serverInList(server_host string) bool {
-	for _, s := range gconfig.Servers {
+func serverInList(shost string) bool {
+	for _, s := range gconfig.WhiteList {
 		re := regexp.MustCompile(s)
-		s := re.FindString(server_host)
+		s := re.FindString(shost)
 		if s != "" {
 			return true
 		}

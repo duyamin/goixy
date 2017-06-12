@@ -28,7 +28,7 @@ $ cat ~/.goixy/config.json
     "Host": "1.2.3.4",
     "Port": "5678",
     "Key": "your-lightsocks-secret-key",
-    "Servers": [
+    "WhiteList": [
         "\\.google.*",
         ".*facebook\\.com"
     ],

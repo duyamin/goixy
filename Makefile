@@ -1,5 +1,7 @@
 build:
 	go build -o goixy .
+
+all:
 	GOOS=darwin GOARCH=amd64 go build -o goixy-mac
 	GOOS=windows GOARCH=386 go build -o goixy32.exe
 	GOOS=windows GOARCH=amd64 go build -o goixy64.exe

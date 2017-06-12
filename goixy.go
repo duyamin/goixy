@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -21,7 +22,18 @@ import (
 	"github.com/orcaman/concurrent-map"
 )
 
-var VERSION = "1.5.1"
+type GoixyConfig struct {
+	Key        string
+	Host       string
+	Port       string
+	Servers    []string
+	DirectHost string
+	DirectPort string
+}
+
+var gconfig GoixyConfig = GoixyConfig{}
+
+var VERSION = "1.6.0"
 var KEY = getKey()
 var countConnected = 0
 var DEBUG = false
@@ -33,8 +45,6 @@ var Servers = cmap.New()
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
-	rhost := flag.String("rhost", "", "remote host")
-	rport := flag.String("rport", "", "remote port")
 	debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
@@ -44,12 +54,11 @@ func main() {
 		os.Exit(0)
 	}
 	flag.Parse()
-	if *rhost == "" || *rport == "" {
-		fmt.Printf("You need set rhost and rport\n")
-		return
-	}
 	DEBUG = *debug
 	VERBOSE = *verbose
+
+	loadRouterConfig()
+	KEY = getKey()
 
 	local, err := net.Listen("tcp", *host+":"+*port)
 	if err != nil {
@@ -59,7 +68,6 @@ func main() {
 	defer local.Close()
 
 	info("goixy v%s", VERSION)
-	info("remote: %s:%s", *rhost, *rport)
 	info("listen on port: %s:%s", *host, *port)
 
 	go printServersInfo()
@@ -68,7 +76,7 @@ func main() {
 		if err != nil {
 			continue
 		}
-		go handleClient(client, *rhost, *rport)
+		go handleClient(client)
 	}
 }
 
@@ -91,12 +99,12 @@ func printServersInfo() {
 					}
 
 					str_bytes := ""
-					if bytes > 1024 * 1024 * 1024 {
-						str_bytes += fmt.Sprintf("%.2fG", float64(bytes / (1024.0 * 1024.0 * 1024)))
-					} else if bytes > 1024 * 1024 {
-						str_bytes += fmt.Sprintf("%.2fM", float64(bytes / (1024.0 * 1024.0)))
+					if bytes > 1024*1024*1024 {
+						str_bytes += fmt.Sprintf("%.2fG", float64(bytes/(1024.0*1024.0*1024)))
+					} else if bytes > 1024*1024 {
+						str_bytes += fmt.Sprintf("%.2fM", float64(bytes/(1024.0*1024.0)))
 					} else {
-						str_bytes += fmt.Sprintf("%.2fK", float64(bytes * 1.0 / 1024.0))
+						str_bytes += fmt.Sprintf("%.2fK", float64(bytes*1.0/1024.0))
 					}
 
 					str_span := ""
@@ -104,9 +112,9 @@ func printServersInfo() {
 						str_span += fmt.Sprintf("%dh", ts_span/3600)
 					}
 					if ts_span > 60 {
-						str_span += fmt.Sprintf("%dm", (ts_span % 3600) / 60)
+						str_span += fmt.Sprintf("%dm", (ts_span%3600)/60)
 					}
-					str_span += fmt.Sprintf("%ds", ts_span % 60)
+					str_span += fmt.Sprintf("%ds", ts_span%60)
 					info("[REPORT] [%d][%s] %s: %s", i, str_span, key, str_bytes)
 				}
 			}
@@ -114,7 +122,7 @@ func printServersInfo() {
 	}
 }
 
-func handleClient(client net.Conn, rhost, rport string) {
+func handleClient(client net.Conn) {
 	countConnected += 1
 	defer func() {
 		client.Close()
@@ -131,16 +139,16 @@ func handleClient(client net.Conn, rhost, rport string) {
 	}
 	if data[0] == 5 {
 		verbose("handle with socks v5")
-		handleSocks(client, rhost, rport)
+		handleSocks(client)
 	} else if data[0] > 5 {
 		verbose("handle with http")
-		handleHTTP(client, rhost, rport, data[0])
+		handleHTTP(client, data[0])
 	} else {
 		info("Error: only support HTTP and Socksv5")
 	}
 }
 
-func handleSocks(client net.Conn, rhost, rport string) {
+func handleSocks(client net.Conn) {
 	buffer := make([]byte, 1)
 	_, err := io.ReadFull(client, buffer)
 	if err != nil {
@@ -220,10 +228,10 @@ func handleSocks(client net.Conn, rhost, rport string) {
 
 	// reply to client to estanblish the socks v5 connection
 	client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-	handleRemote(client, rhost, rport, shost, sport, nil, nil)
+	handleRemote(client, shost, sport, nil, nil)
 }
 
-func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
+func handleHTTP(client net.Conn, firstByte byte) {
 	dataInit := make([]byte, 8192)
 	dataInit[0] = firstByte
 	nDataInit, err := client.Read(dataInit[1:])
@@ -280,10 +288,20 @@ func handleHTTP(client net.Conn, rhost, rport string, firstByte byte) {
 		binary.BigEndian.PutUint16(dataInitLen, uint16(len(dataInit)))
 		d2r = append(dataInitLen, dataInit...)
 	}
-	handleRemote(client, rhost, rport, shost, sport, d2c, d2r)
+	handleRemote(client, shost, sport, d2c, d2r)
 }
 
-func handleRemote(client net.Conn, rhost, rport, shost, sport string, d2c, d2r []byte) {
+func handleRemote(client net.Conn, shost, sport string, d2c, d2r []byte) {
+	rhost := ""
+	rport := ""
+	if serverInList(shost) {
+		rhost = gconfig.Host
+		rport = gconfig.Port
+	} else {
+		rhost = gconfig.DirectHost
+		rport = gconfig.DirectPort
+	}
+
 	remote, err := net.Dial("tcp", rhost+":"+rport)
 	if err != nil {
 		info("cannot connect to remote: %s:%s", rhost, rport)
@@ -403,7 +421,7 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string) {
 	}
 }
 
-func getKey() []byte {
+func loadDirects() []byte {
 	usr, err := user.Current()
 	if err != nil {
 		fmt.Printf("user current: %v\n", err)
@@ -416,6 +434,34 @@ func getKey() []byte {
 		os.Exit(1)
 	}
 	s := strings.TrimSpace(string(data))
+	sum := sha256.Sum256([]byte(s))
+	return sum[:]
+}
+
+func getRouterConfig() []byte {
+	usr, err := user.Current()
+	if err != nil {
+		fmt.Printf("user current: %v\n", err)
+		os.Exit(2)
+	}
+	fileKey := path.Join(usr.HomeDir, ".goixy/config.json")
+	if _, err := os.Stat(fileKey); os.IsNotExist(err) {
+		return nil
+	}
+
+	data, err := ioutil.ReadFile(fileKey)
+	if err != nil {
+		fmt.Printf("failed to load direct-servers file: %v\n", err)
+		os.Exit(1)
+	}
+	return data
+}
+
+func getKey() []byte {
+	if gconfig.Key == "" {
+		return nil
+	}
+	s := strings.TrimSpace(gconfig.Key)
 	sum := sha256.Sum256([]byte(s))
 	return sum[:]
 }
@@ -458,7 +504,7 @@ func initServers(key string, bytes int64) {
 func incrServers(key string, n int64) {
 	if m, ok := Servers.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("bytes"); ok {
-			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64) + n)
+			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64)+n)
 		}
 	} else {
 		initServers(key, n)
@@ -467,6 +513,29 @@ func incrServers(key string, n int64) {
 
 func deleteServers(key string) {
 	Servers.Remove(key)
+}
+
+func loadRouterConfig() {
+	b := getRouterConfig()
+	if b == nil {
+		return
+	}
+	err := json.Unmarshal(b, &gconfig)
+	if err != nil {
+		fmt.Printf("Invalid Goixy Config: %v\n", err)
+		os.Exit(2)
+	}
+}
+
+func serverInList(server_host string) bool {
+	for _, s := range gconfig.Servers {
+		re := regexp.MustCompile(s)
+		s := re.FindString(server_host)
+		if s != "" {
+			return true
+		}
+	}
+	return false
 }
 
 type DataInfo struct {

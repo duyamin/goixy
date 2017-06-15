@@ -8,7 +8,7 @@ An HTTP/SOCKS5 Proxy in Go
 $ go get github.com/mitnk/goixy
 
 $ goixy -h
-Usage of goixy v1.6.2
+Usage of goixy v1.6.3
 goixy [flags]
   -host string
         host (default "127.0.0.1")
@@ -18,7 +18,7 @@ goixy [flags]
   -vv
         very verbose
   -withdirect
-        Use Direct proxy
+        Use Direct proxy (for HTTP Proxy only)
 ```
 
 ## config
@@ -39,16 +39,19 @@ $ cat ~/.goixy/config.json
 }
 ```
 
+(If `DirectKey` is not set or empty, `Key` will be used)
+
 You need to run [lightsocks](https://github.com/mitnk/lightsocks) on
-`1.2.3.4:5678` at least. And also run on `127.0.0.1:12345` if you use
+`1.2.3.4:5678`. And also need to run on `127.0.0.1:12345` if you use
 `-withdirect`.
 
-Goixy default does not use direct proxy, means that all connections will
-use `Host:Port` proxy. If `-withdirect` is set, only WhiteList connections
-using `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
+Goixy default does not use direct proxy, meaning all connections will
+use `Host:Port` proxy. If `-withdirect` is set, only `WhiteList` connections
+use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 
-NOTE: currently only HTTP Proxy support `-withdirect`. Because socksv5 proxy
-seems got IP instead of domains.
+NOTE: currently `-withdirect` only supports HTTP Proxy. (socksv5 proxy seems
+always got IP instead of domains). So even set `-withdirect`, accesses with
+Socks Porxy (i.e. `curl -x socks5://...`) will always use `Host:Port` proxy.
 
 ## how it works
 

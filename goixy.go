@@ -34,7 +34,7 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.2"
+var VERSION = "1.6.3"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var countConnected = 0
@@ -48,7 +48,7 @@ var Servers = cmap.New()
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
-	with_direct := flag.Bool("withdirect", false, "Use Direct proxy")
+	with_direct := flag.Bool("withdirect", false, "Use Direct proxy (for HTTP Porxy only)")
 	debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
@@ -237,7 +237,7 @@ func handleSocks(client net.Conn) {
 
 	// reply to client to estanblish the socks v5 connection
 	client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-	rhost, rport, key := getRemoteInfo(shost)
+	rhost, rport, key := getRemoteInfo(shost, true)
 	handleRemote(client, shost, sport, rhost, rport, nil, nil, key)
 }
 
@@ -282,7 +282,7 @@ func handleHTTP(client net.Conn, firstByte byte) {
 		shost = u.Host
 	}
 	info("connect to server %s:%s", shost, sport)
-	rhost, rport, key := getRemoteInfo(shost)
+	rhost, rport, key := getRemoteInfo(shost, false)
 
 	var d2c []byte
 	var d2r []byte
@@ -302,11 +302,11 @@ func handleHTTP(client net.Conn, firstByte byte) {
 	handleRemote(client, shost, sport, rhost, rport, d2c, d2r, key)
 }
 
-func getRemoteInfo(shost string) (string, string, []byte) {
+func getRemoteInfo(shost string, is_socks bool) (string, string, []byte) {
 	rhost := ""
 	rport := ""
 	key := []byte("")
-	if !WITH_DIRECT || serverInList(shost) {
+	if is_socks || !WITH_DIRECT || serverInList(shost) {
 		rhost = GC.Host
 		rport = GC.Port
 		key = KEY

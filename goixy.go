@@ -34,7 +34,7 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.3"
+var VERSION = "1.6.5"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var countConnected = 0
@@ -48,7 +48,8 @@ var Servers = cmap.New()
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
-	with_direct := flag.Bool("withdirect", false, "Use Direct proxy (for HTTP Porxy only)")
+	with_direct := flag.Bool("withdirect", false,
+							 "Use Direct proxy (for HTTP Porxy only)")
 	debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
@@ -90,7 +91,7 @@ func main() {
 func printServersInfo() {
 	for {
 		select {
-		case <-time.After(600 * time.Second):
+		case <-time.After(10 * time.Second):
 			ts_now := time.Now().Unix()
 			keys := Servers.Keys()
 			info("[REPORT] We have %d servers connected", len(keys))
@@ -98,11 +99,15 @@ func printServersInfo() {
 				if tmp, ok := Servers.Get(key); ok {
 					bytes := int64(0)
 					ts_span := int64(0)
+					conn_count := int64(0)
 					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
 						bytes = tmp.(int64)
 					}
 					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
 						ts_span = ts_now - tmp.(int64)
+					}
+					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
+						conn_count = tmp.(int64)
 					}
 
 					str_bytes := ""
@@ -124,7 +129,12 @@ func printServersInfo() {
 						str_span += fmt.Sprintf("%dm", (ts_span%3600)/60)
 					}
 					str_span += fmt.Sprintf("%ds", ts_span%60)
-					info("[REPORT] [%d][%s] %s: %s", i, str_span, key, str_bytes)
+					str_conn_count := ""
+					if conn_count > 1 {
+						str_conn_count = fmt.Sprintf("(%d)", conn_count)
+					}
+					info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key,
+						 str_conn_count, str_bytes)
 				}
 			}
 		}
@@ -500,11 +510,18 @@ func byteInArray(b byte, A []byte) bool {
 }
 
 func initServers(key string, bytes int64) {
-	m := cmap.New()
-	now := time.Now()
-	m.Set("ts", now.Unix())
-	m.Set("bytes", bytes)
-	Servers.Set(key, m)
+	if m, ok := Servers.Get(key); ok {
+		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {
+			m.(cmap.ConcurrentMap).Set("count", tmp.(int64) + 1)
+		}
+	} else {
+		m := cmap.New()
+		now := time.Now()
+		m.Set("count", int64(1))
+		m.Set("bytes", bytes)
+		m.Set("ts", now.Unix())
+		Servers.Set(key, m)
+	}
 }
 
 func incrServers(key string, n int64) {
@@ -518,7 +535,16 @@ func incrServers(key string, n int64) {
 }
 
 func deleteServers(key string) {
-	Servers.Remove(key)
+	if m, ok := Servers.Get(key); ok {
+		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {
+			count := tmp.(int64)
+			if count <= 1 {
+				Servers.Remove(key)
+			} else {
+				m.(cmap.ConcurrentMap).Set("count", count - 1)
+			}
+		}
+	}
 }
 
 func loadRouterConfig() {

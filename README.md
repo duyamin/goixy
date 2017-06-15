@@ -8,7 +8,7 @@ An HTTP/SOCKS5 Proxy in Go
 $ go get github.com/mitnk/goixy
 
 $ goixy -h
-Usage of goixy v1.6.3
+Usage of goixy v1.6.5
 goixy [flags]
   -host string
         host (default "127.0.0.1")

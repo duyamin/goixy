@@ -39,8 +39,9 @@ $ cat ~/.goixy/config.json
 }
 ```
 
-You need to run lightsocks on `1.2.3.4:5678` at least. And also run on
-`127.0.0.1:12345` if you use `-withdirect`.
+You need to run [lightsocks](https://github.com/mitnk/lightsocks) on
+`1.2.3.4:5678` at least. And also run on `127.0.0.1:12345` if you use
+`-withdirect`.
 
 Goixy default does not use direct proxy, means that all connections will
 use `Host:Port` proxy. If `-withdirect` is set, only WhiteList connections

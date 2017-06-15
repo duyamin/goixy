@@ -34,12 +34,13 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.1"
+var VERSION = "1.6.2"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var countConnected = 0
 var DEBUG = false
 var VERBOSE = false
+var WITH_DIRECT = false
 
 // map: server -> bytes received
 var Servers = cmap.New()
@@ -47,6 +48,7 @@ var Servers = cmap.New()
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
+	with_direct := flag.Bool("withdirect", false, "Use Direct proxy")
 	debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
@@ -58,6 +60,7 @@ func main() {
 	flag.Parse()
 	DEBUG = *debug
 	VERBOSE = *verbose
+	WITH_DIRECT = *with_direct
 	loadRouterConfig()
 
 	local, err := net.Listen("tcp", *host+":"+*port)
@@ -67,7 +70,11 @@ func main() {
 	}
 	defer local.Close()
 
-	info("goixy v%s", VERSION)
+	_with_or_not := "with"
+	if !WITH_DIRECT {
+		_with_or_not = "without"
+	}
+	info("goixy v%s %s Direct Porxy", VERSION, _with_or_not)
 	info("listen on port: %s:%s", *host, *port)
 
 	go printServersInfo()
@@ -299,7 +306,7 @@ func getRemoteInfo(shost string) (string, string, []byte) {
 	rhost := ""
 	rport := ""
 	key := []byte("")
-	if serverInList(shost) {
+	if !WITH_DIRECT || serverInList(shost) {
 		rhost = GC.Host
 		rport = GC.Port
 		key = KEY

@@ -91,7 +91,7 @@ func main() {
 func printServersInfo() {
 	for {
 		select {
-		case <-time.After(10 * time.Second):
+		case <-time.After(600 * time.Second):
 			ts_now := time.Now().Unix()
 			keys := Servers.Keys()
 			info("[REPORT] We have %d servers connected", len(keys))

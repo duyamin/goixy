@@ -355,23 +355,16 @@ func handleRemote(client net.Conn, shost, sport, rhost, rport string, d2c, d2r, 
 	go readDataFromClient(ch_client, ch_remote, client)
 	go readDataFromRemote(ch_remote, remote, shost, sport, key)
 
-	shouldStop := false
 	for {
-		if shouldStop {
-			break
-		}
-
 		select {
 		case data, ok := <-ch_remote:
 			if !ok {
-				shouldStop = true
-				break
+				return
 			}
 			client.Write(data)
 		case di, ok := <-ch_client:
 			if !ok {
-				shouldStop = true
-				break
+				return
 			}
 			buffer := encrypt.Encrypt(di.data[:di.size], key)
 			b := make([]byte, 2)

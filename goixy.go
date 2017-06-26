@@ -38,7 +38,7 @@ var GC GoixyConfig = GoixyConfig{}
 var VERSION = "1.6.7"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
-var countConnected = 0
+var COUNT_CONNECTED = 0
 var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
@@ -89,69 +89,75 @@ func main() {
 	}
 }
 
-func printServersInfo() {
+func doPrintServersInfo() {
 	MUTEX.Lock()
-	defer func() {
-		MUTEX.Unlock()
-	}()
+	defer MUTEX.Unlock()
 
+	ts_now := time.Now().Unix()
+	keys := SERVER_INFO.Keys()
+	info("[REPORT] We have %d servers connected", len(keys))
+	for i, key := range keys {
+		if tmp, ok := SERVER_INFO.Get(key); ok {
+			bytes := int64(0)
+			ts_span := int64(0)
+			conn_count := int64(0)
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
+				bytes = tmp.(int64)
+			}
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
+				ts_span = ts_now - tmp.(int64)
+			}
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
+				conn_count = tmp.(int64)
+			}
+
+			str_bytes := ""
+			if bytes > 1024*1024*1024 {
+				str_bytes = fmt.Sprintf("%.2fG", float64(bytes)/(1024.0*1024.0*1024))
+			} else if bytes > 1024*1024 {
+				str_bytes = fmt.Sprintf("%.2fM", float64(bytes)/(1024.0*1024.0))
+			} else if bytes > 1024 {
+				str_bytes = fmt.Sprintf("%.2fK", float64(bytes)/1024.0)
+			} else {
+				str_bytes = fmt.Sprintf("%dB", bytes)
+			}
+
+			str_span := ""
+			if ts_span > 3600 {
+				str_span += fmt.Sprintf("%dh", ts_span/3600)
+			}
+			if ts_span > 60 {
+				str_span += fmt.Sprintf("%dm", (ts_span%3600)/60)
+			}
+			str_span += fmt.Sprintf("%ds", ts_span%60)
+			str_conn_count := ""
+			if conn_count > 1 {
+				str_conn_count = fmt.Sprintf("(%d)", conn_count)
+			}
+			info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key,
+				 str_conn_count, str_bytes)
+		}
+	}
+}
+
+func printServersInfo() {
 	for {
 		select {
 		case <-time.After(600 * time.Second):
-			ts_now := time.Now().Unix()
-			keys := SERVER_INFO.Keys()
-			info("[REPORT] We have %d servers connected", len(keys))
-			for i, key := range keys {
-				if tmp, ok := SERVER_INFO.Get(key); ok {
-					bytes := int64(0)
-					ts_span := int64(0)
-					conn_count := int64(0)
-					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
-						bytes = tmp.(int64)
-					}
-					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
-						ts_span = ts_now - tmp.(int64)
-					}
-					if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
-						conn_count = tmp.(int64)
-					}
-
-					str_bytes := ""
-					if bytes > 1024*1024*1024 {
-						str_bytes = fmt.Sprintf("%.2fG", float64(bytes)/(1024.0*1024.0*1024))
-					} else if bytes > 1024*1024 {
-						str_bytes = fmt.Sprintf("%.2fM", float64(bytes)/(1024.0*1024.0))
-					} else if bytes > 1024 {
-						str_bytes = fmt.Sprintf("%.2fK", float64(bytes)/1024.0)
-					} else {
-						str_bytes = fmt.Sprintf("%dB", bytes)
-					}
-
-					str_span := ""
-					if ts_span > 3600 {
-						str_span += fmt.Sprintf("%dh", ts_span/3600)
-					}
-					if ts_span > 60 {
-						str_span += fmt.Sprintf("%dm", (ts_span%3600)/60)
-					}
-					str_span += fmt.Sprintf("%ds", ts_span%60)
-					str_conn_count := ""
-					if conn_count > 1 {
-						str_conn_count = fmt.Sprintf("(%d)", conn_count)
-					}
-					info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key,
-						 str_conn_count, str_bytes)
-				}
-			}
+			doPrintServersInfo()
 		}
 	}
 }
 
 func handleClient(client net.Conn) {
-	countConnected += 1
+	MUTEX.Lock()
+	COUNT_CONNECTED += 1
+	MUTEX.Unlock()
 	defer func() {
 		client.Close()
-		countConnected -= 1
+		MUTEX.Lock()
+		COUNT_CONNECTED -= 1
+		MUTEX.Unlock()
 		debug("closed client")
 	}()
 	debug("connected from %v.", client.RemoteAddr())
@@ -490,7 +496,7 @@ func getRouterConfig() []byte {
 
 func info(format string, a ...interface{}) {
 	ts := time.Now().Format("2006-01-02 15:04:05")
-	prefix := fmt.Sprintf("[%s][%d] ", ts, countConnected)
+	prefix := fmt.Sprintf("[%s][%d] ", ts, COUNT_CONNECTED)
 	fmt.Printf(prefix+format+"\n", a...)
 }
 
@@ -517,9 +523,7 @@ func byteInArray(b byte, A []byte) bool {
 
 func initServers(key string, bytes int64) {
 	MUTEX.Lock()
-	defer func() {
-		MUTEX.Unlock()
-	}()
+	defer MUTEX.Unlock()
 
 	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {
@@ -537,24 +541,18 @@ func initServers(key string, bytes int64) {
 
 func incrServers(key string, n int64) {
 	MUTEX.Lock()
-	defer func() {
-		MUTEX.Unlock()
-	}()
+	defer MUTEX.Unlock()
 
 	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("bytes"); ok {
 			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64)+n)
 		}
-	} else {
-		initServers(key, n)
 	}
 }
 
 func deleteServers(key string) {
 	MUTEX.Lock()
-	defer func() {
-		MUTEX.Unlock()
-	}()
+	defer MUTEX.Unlock()
 
 	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {

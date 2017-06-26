@@ -35,7 +35,7 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.5"
+var VERSION = "1.6.7"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var countConnected = 0

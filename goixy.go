@@ -112,13 +112,13 @@ func printServersInfo() {
 
 					str_bytes := ""
 					if bytes > 1024*1024*1024 {
-						str_bytes += fmt.Sprintf("%.2fG", float64(bytes/(1024.0*1024.0*1024)))
+						str_bytes = fmt.Sprintf("%.2fG", float64(bytes)/(1024.0*1024.0*1024))
 					} else if bytes > 1024*1024 {
-						str_bytes += fmt.Sprintf("%.2fM", float64(bytes/(1024.0*1024.0)))
+						str_bytes = fmt.Sprintf("%.2fM", float64(bytes)/(1024.0*1024.0))
 					} else if bytes > 1024 {
-						str_bytes += fmt.Sprintf("%.2fK", float64(bytes*1.0/1024.0))
+						str_bytes = fmt.Sprintf("%.2fK", float64(bytes)/1024.0)
 					} else {
-						str_bytes += fmt.Sprintf("%dB", bytes)
+						str_bytes = fmt.Sprintf("%dB", bytes)
 					}
 
 					str_span := ""

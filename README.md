@@ -2,26 +2,21 @@
 
 An HTTP/SOCKS5 Proxy in Go
 
-## install & usage
+![https://github.com/mitnk/goixy/blob/master/howitworks.png](https://github.com/mitnk/goixy/blob/master/howitworks.png)
+
+## install
+
+You can download [pre-built binaries here](https://github.com/mitnk/goixy/releases).
+
+Or build it with Go environment yourself:
 
 ```
-$ go get github.com/mitnk/goixy
-
-$ goixy -h
-Usage of goixy v1.6.5
-goixy [flags]
-  -host string
-        host (default "127.0.0.1")
-  -port string
-        port (default "1080")
-  -v    verbose
-  -vv
-        very verbose
-  -withdirect
-        Use Direct proxy (for HTTP Proxy only)
+$ go get -u github.com/mitnk/goixy
 ```
 
-## config
+## usage
+
+### config
 
 ```
 $ cat ~/.goixy/config.json
@@ -49,13 +44,35 @@ Goixy default does not use direct proxy, meaning all connections will
 use `Host:Port` proxy. If `-withdirect` is set, only `WhiteList` connections
 use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 
+### run it
+
+```
+$ goixy
+[2017-06-18 14:58:36][0] goixy v1.6.5 without Direct Porxy
+[2017-06-18 14:58:36][0] listen on port: 127.0.0.1:1080
+```
+
+### see its help page
+
+```
+$ goixy -h
+Usage of goixy v1.6.5
+goixy [flags]
+  -host string
+        host (default "127.0.0.1")
+  -port string
+        port (default "1080")
+  -v    verbose
+  -vv
+        very verbose
+  -withdirect
+        Use Direct proxy (for HTTP Proxy only)
+```
+
+
 NOTE: currently `-withdirect` only supports HTTP Proxy. (socksv5 proxy seems
 always got IP instead of domains). So even set `-withdirect`, accesses with
 Socks Porxy (i.e. `curl -x socks5://...`) will always use `Host:Port` proxy.
-
-## how it works
-
-![https://github.com/mitnk/goixy/blob/master/howitworks.png](https://github.com/mitnk/goixy/blob/master/howitworks.png)
 
 ## lightsocks
 

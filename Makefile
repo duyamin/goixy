@@ -12,3 +12,6 @@ all:
 
 install:
 	go build -ldflags "-s -w" -o goixy && cp goixy /usr/local/bin/
+
+clean:
+	rm -f goixy goixy-* *.exe

@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mitnk/goutils/encrypt"
@@ -42,8 +43,8 @@ var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
 
-// map: server -> bytes received
-var Servers = cmap.New()
+var SERVER_INFO = cmap.New()
+var MUTEX = &sync.Mutex{}
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
@@ -89,14 +90,19 @@ func main() {
 }
 
 func printServersInfo() {
+	MUTEX.Lock()
+	defer func() {
+		MUTEX.Unlock()
+	}()
+
 	for {
 		select {
 		case <-time.After(600 * time.Second):
 			ts_now := time.Now().Unix()
-			keys := Servers.Keys()
+			keys := SERVER_INFO.Keys()
 			info("[REPORT] We have %d servers connected", len(keys))
 			for i, key := range keys {
-				if tmp, ok := Servers.Get(key); ok {
+				if tmp, ok := SERVER_INFO.Get(key); ok {
 					bytes := int64(0)
 					ts_span := int64(0)
 					conn_count := int64(0)
@@ -510,7 +516,12 @@ func byteInArray(b byte, A []byte) bool {
 }
 
 func initServers(key string, bytes int64) {
-	if m, ok := Servers.Get(key); ok {
+	MUTEX.Lock()
+	defer func() {
+		MUTEX.Unlock()
+	}()
+
+	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {
 			m.(cmap.ConcurrentMap).Set("count", tmp.(int64) + 1)
 		}
@@ -520,12 +531,17 @@ func initServers(key string, bytes int64) {
 		m.Set("count", int64(1))
 		m.Set("bytes", bytes)
 		m.Set("ts", now.Unix())
-		Servers.Set(key, m)
+		SERVER_INFO.Set(key, m)
 	}
 }
 
 func incrServers(key string, n int64) {
-	if m, ok := Servers.Get(key); ok {
+	MUTEX.Lock()
+	defer func() {
+		MUTEX.Unlock()
+	}()
+
+	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("bytes"); ok {
 			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64)+n)
 		}
@@ -535,11 +551,16 @@ func incrServers(key string, n int64) {
 }
 
 func deleteServers(key string) {
-	if m, ok := Servers.Get(key); ok {
+	MUTEX.Lock()
+	defer func() {
+		MUTEX.Unlock()
+	}()
+
+	if m, ok := SERVER_INFO.Get(key); ok {
 		if tmp, ok := m.(cmap.ConcurrentMap).Get("count"); ok {
 			count := tmp.(int64)
 			if count <= 1 {
-				Servers.Remove(key)
+				SERVER_INFO.Remove(key)
 			} else {
 				m.(cmap.ConcurrentMap).Set("count", count - 1)
 			}

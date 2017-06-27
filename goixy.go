@@ -55,7 +55,7 @@ func main() {
 							 "Use Direct proxy (for HTTP Porxy only)")
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
-	_span_report := flag.Int64("s", 600, "for each many seconds print reports")
+	_span_report := flag.Int64("s", 600, "time span to print reports in seconds")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
 		fmt.Printf("goixy [flags]\n")

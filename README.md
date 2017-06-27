@@ -63,7 +63,7 @@ goixy [flags]
   -port string
         port (default "1080")
   -s int
-        for each many seconds print reports (default 600)
+        time span to print reports in seconds (default 600)
   -v    verbose
   -vv
         very verbose
@@ -71,10 +71,9 @@ goixy [flags]
         Use Direct proxy (for HTTP Proxy only)
 ```
 
-
-NOTE: currently `-withdirect` only supports HTTP Proxy. (socksv5 proxy seems
-always got IP instead of domains). So even set `-withdirect`, accesses with
-Socks Porxy (i.e. `curl -x socks5://...`) will always use `Host:Port` proxy.
+NOTE: currently `-withdirect` only supports HTTP Proxy. Even set
+`-withdirect`, accesses with Socks Porxy (i.e. `curl -x socks5://...`)
+will always use `Host:Port` proxy.
 
 ## lightsocks
 

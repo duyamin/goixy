@@ -42,6 +42,8 @@ var COUNT_CONNECTED = 0
 var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
+var SPAN_REPORT int64 = 600
+var TOTAL_BYTES int64 = 0
 
 var SERVER_INFO = cmap.New()
 var MUTEX = &sync.Mutex{}
@@ -53,6 +55,7 @@ func main() {
 							 "Use Direct proxy (for HTTP Porxy only)")
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
+	_span_report := flag.Int64("s", 600, "for each many seconds print reports")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
 		fmt.Printf("goixy [flags]\n")
@@ -61,6 +64,10 @@ func main() {
 	}
 	flag.Parse()
 	DEBUG = *_debug
+	SPAN_REPORT = *_span_report
+	if SPAN_REPORT < 10 {
+		SPAN_REPORT = 10
+	}
 	VERBOSE = *verbose
 	WITH_DIRECT = *with_direct
 	loadRouterConfig()
@@ -86,66 +93,6 @@ func main() {
 			continue
 		}
 		go handleClient(client)
-	}
-}
-
-func doPrintServersInfo() {
-	MUTEX.Lock()
-	defer MUTEX.Unlock()
-
-	ts_now := time.Now().Unix()
-	keys := SERVER_INFO.Keys()
-	info("[REPORT] We have %d servers connected", len(keys))
-	for i, key := range keys {
-		if tmp, ok := SERVER_INFO.Get(key); ok {
-			bytes := int64(0)
-			ts_span := int64(0)
-			conn_count := int64(0)
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
-				bytes = tmp.(int64)
-			}
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
-				ts_span = ts_now - tmp.(int64)
-			}
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
-				conn_count = tmp.(int64)
-			}
-
-			str_bytes := ""
-			if bytes > 1024*1024*1024 {
-				str_bytes = fmt.Sprintf("%.2fG", float64(bytes)/(1024.0*1024.0*1024))
-			} else if bytes > 1024*1024 {
-				str_bytes = fmt.Sprintf("%.2fM", float64(bytes)/(1024.0*1024.0))
-			} else if bytes > 1024 {
-				str_bytes = fmt.Sprintf("%.2fK", float64(bytes)/1024.0)
-			} else {
-				str_bytes = fmt.Sprintf("%dB", bytes)
-			}
-
-			str_span := ""
-			if ts_span > 3600 {
-				str_span += fmt.Sprintf("%dh", ts_span/3600)
-			}
-			if ts_span > 60 {
-				str_span += fmt.Sprintf("%dm", (ts_span%3600)/60)
-			}
-			str_span += fmt.Sprintf("%ds", ts_span%60)
-			str_conn_count := ""
-			if conn_count > 1 {
-				str_conn_count = fmt.Sprintf("(%d)", conn_count)
-			}
-			info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key,
-				 str_conn_count, str_bytes)
-		}
-	}
-}
-
-func printServersInfo() {
-	for {
-		select {
-		case <-time.After(600 * time.Second):
-			doPrintServersInfo()
-		}
 	}
 }
 
@@ -443,7 +390,11 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string, key 
 			info("ERROR: cannot decrypt data from client")
 			break
 		}
-		debug("[%s:%s] received %d bytes", shost, sport, len(data))
+		n_bytes := len(data)
+		debug("[%s:%s] received %d bytes", shost, sport, n_bytes)
+		MUTEX.Lock()
+		TOTAL_BYTES += int64(n_bytes)
+		MUTEX.Unlock()
 		verbose("remote: %s", data)
 		ch <- data
 	}
@@ -512,6 +463,48 @@ func byteInArray(b byte, A []byte) bool {
 		}
 	}
 	return false
+}
+
+func printServersInfo() {
+	for {
+		select {
+		case <-time.After(time.Second * time.Duration(SPAN_REPORT)):
+			doPrintServersInfo()
+		}
+	}
+}
+
+func doPrintServersInfo() {
+	MUTEX.Lock()
+	defer MUTEX.Unlock()
+
+	ts_now := time.Now().Unix()
+	keys := SERVER_INFO.Keys()
+	total_bytes := fmtHumanBytes(TOTAL_BYTES)
+	info("[REPORT] %d connections and %s bytes", len(keys), total_bytes)
+	for i, key := range keys {
+		if tmp, ok := SERVER_INFO.Get(key); ok {
+			bytes := int64(0)
+			ts_span := int64(0)
+			conn_count := int64(0)
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
+				bytes = tmp.(int64)
+			}
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
+				ts_span = ts_now - tmp.(int64)
+			}
+			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
+				conn_count = tmp.(int64)
+			}
+			str_bytes := fmtHumanBytes(bytes)
+			str_span := fmtTimeSpan(ts_span)
+			str_conn_count := ""
+			if conn_count > 1 {
+				str_conn_count = fmt.Sprintf("(%d)", conn_count)
+			}
+			info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key, str_conn_count, str_bytes)
+		}
+	}
 }
 
 func initServers(key string, bytes int64) {
@@ -592,6 +585,35 @@ func serverInList(shost string) bool {
 		}
 	}
 	return false
+}
+
+func fmtHumanBytes(n_bytes int64) string {
+	str_bytes := ""
+	if n_bytes > 1024*1024*1024 {
+		str_bytes = fmt.Sprintf("%.2fG", float64(n_bytes)/(1024.0*1024.0*1024))
+	} else if n_bytes > 1024*1024 {
+		str_bytes = fmt.Sprintf("%.2fM", float64(n_bytes)/(1024.0*1024.0))
+	} else if n_bytes > 1024 {
+		str_bytes = fmt.Sprintf("%.2fK", float64(n_bytes)/1024.0)
+	} else {
+		str_bytes = fmt.Sprintf("%dB", n_bytes)
+	}
+	return str_bytes
+}
+
+func fmtTimeSpan(n_seconds int64) string {
+	str_span := ""
+	if n_seconds > 3600 * 24 {
+		str_span += fmt.Sprintf("%dd", n_seconds/(3600*24))
+	}
+	if n_seconds > 3600 {
+		str_span += fmt.Sprintf("%dh", (n_seconds % (3600*24))/3600)
+	}
+	if n_seconds > 60 {
+		str_span += fmt.Sprintf("%dm", (n_seconds%3600)/60)
+	}
+	str_span += fmt.Sprintf("%ds", n_seconds % 60)
+	return str_span
 }
 
 type DataInfo struct {

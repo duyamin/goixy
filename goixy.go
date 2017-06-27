@@ -51,7 +51,7 @@ func main() {
 	port := flag.String("port", "1080", "port")
 	with_direct := flag.Bool("withdirect", false,
 							 "Use Direct proxy (for HTTP Porxy only)")
-	debug := flag.Bool("v", false, "verbose")
+	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
@@ -60,7 +60,7 @@ func main() {
 		os.Exit(0)
 	}
 	flag.Parse()
-	DEBUG = *debug
+	DEBUG = *_debug
 	VERBOSE = *verbose
 	WITH_DIRECT = *with_direct
 	loadRouterConfig()
@@ -408,10 +408,6 @@ func handleRemote(client net.Conn, shost, sport, rhost, rport string, d2c, d2r, 
 }
 
 func readDataFromClient(ch chan DataInfo, ch2 chan []byte, conn net.Conn) {
-	debug("enter readDataFromClient")
-	defer func() {
-		debug("leave readDataFromClient")
-	}()
 	for {
 		data := make([]byte, 8192)
 		n, err := conn.Read(data)
@@ -426,10 +422,6 @@ func readDataFromClient(ch chan DataInfo, ch2 chan []byte, conn net.Conn) {
 }
 
 func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string, key []byte) {
-	debug("enter readDataFromRemote")
-	defer func() {
-		debug("leave readDataFromRemote")
-	}()
 	for {
 		buffer := make([]byte, 2)
 		_, err := io.ReadFull(conn, buffer)
@@ -481,12 +473,13 @@ func getRouterConfig() []byte {
 		fmt.Printf("user current: %v\n", err)
 		os.Exit(2)
 	}
-	fileKey := path.Join(usr.HomeDir, ".goixy/config.json")
-	if _, err := os.Stat(fileKey); os.IsNotExist(err) {
-		return nil
+	fileConfig := path.Join(usr.HomeDir, ".goixy/config.json")
+	if _, err := os.Stat(fileConfig); os.IsNotExist(err) {
+		fmt.Printf("config file is missing: %v\n", fileConfig)
+		os.Exit(2)
 	}
 
-	data, err := ioutil.ReadFile(fileKey)
+	data, err := ioutil.ReadFile(fileConfig)
 	if err != nil {
 		fmt.Printf("failed to load direct-servers file: %v\n", err)
 		os.Exit(1)

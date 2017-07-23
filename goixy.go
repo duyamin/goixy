@@ -35,7 +35,7 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.6.7"
+var VERSION = "1.7.0"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var COUNT_CONNECTED = 0
@@ -43,6 +43,7 @@ var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
 var SPAN_REPORT int64 = 600
+var SPAN_TIMEOUT int64 = 60
 var TOTAL_BYTES int64 = 0
 
 var SERVER_INFO = cmap.New()
@@ -56,6 +57,7 @@ func main() {
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	_span_report := flag.Int64("s", 600, "time span to print reports in seconds")
+	_span_timeout := flag.Int64("t", 60, "time out on connections in seconds")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
 		fmt.Printf("goixy [flags]\n")
@@ -67,6 +69,10 @@ func main() {
 	SPAN_REPORT = *_span_report
 	if SPAN_REPORT < 10 {
 		SPAN_REPORT = 10
+	}
+	SPAN_TIMEOUT = *_span_timeout
+	if SPAN_TIMEOUT < 60 {
+		SPAN_TIMEOUT = 60
 	}
 	VERBOSE = *verbose
 	WITH_DIRECT = *with_direct
@@ -347,7 +353,7 @@ func handleRemote(client net.Conn, shost, sport, rhost, rport string, d2c, d2r, 
 			binary.BigEndian.PutUint16(b, uint16(len(buffer)))
 			remote.Write(b)
 			remote.Write(buffer)
-		case <-time.After(60 * time.Second):
+		case <-time.After(time.Second * time.Duration(SPAN_TIMEOUT)):
 			debug("timeout on %s:%s", shost, sport)
 			return
 		}

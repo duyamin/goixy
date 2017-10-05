@@ -48,7 +48,7 @@ use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 
 ```
 $ goixy
-[2017-06-18 14:58:36][0] goixy v1.6.7 without Direct Porxy
+[2017-06-18 14:58:36][0] goixy v1.7.1 without Direct Porxy
 [2017-06-18 14:58:36][0] listen on port: 127.0.0.1:1080
 ```
 
@@ -56,7 +56,7 @@ $ goixy
 
 ```
 $ goixy -h
-Usage of goixy v1.6.7
+Usage of goixy v1.7.1
 goixy [flags]
   -host string
         host (default "127.0.0.1")
@@ -64,11 +64,13 @@ goixy [flags]
         port (default "1080")
   -s int
         time span to print reports in seconds (default 600)
+  -t int
+        time out on connections in seconds (default 3600)
   -v    verbose
   -vv
         very verbose
   -withdirect
-        Use Direct proxy (for HTTP Proxy only)
+        Use Direct proxy (for HTTP Porxy only)
 ```
 
 NOTE: currently `-withdirect` only supports HTTP Proxy. Even set

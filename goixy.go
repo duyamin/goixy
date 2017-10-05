@@ -35,7 +35,7 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.7.0"
+var VERSION = "1.7.1"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var COUNT_CONNECTED = 0
@@ -43,7 +43,7 @@ var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
 var SPAN_REPORT int64 = 600
-var SPAN_TIMEOUT int64 = 60
+var SPAN_TIMEOUT int64 = 3600
 var TOTAL_BYTES int64 = 0
 
 var SERVER_INFO = cmap.New()
@@ -57,7 +57,7 @@ func main() {
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
 	_span_report := flag.Int64("s", 600, "time span to print reports in seconds")
-	_span_timeout := flag.Int64("t", 60, "time out on connections in seconds")
+	_span_timeout := flag.Int64("t", 3600, "time out on connections in seconds")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
 		fmt.Printf("goixy [flags]\n")

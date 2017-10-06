@@ -1,6 +1,6 @@
 # Goixy
 
-An HTTP/SOCKS5 Proxy in Go
+An HTTP/SOCKS5 Proxy, written in Go.
 
 ![https://github.com/mitnk/goixy/blob/master/howitworks.png](https://github.com/mitnk/goixy/blob/master/howitworks.png)
 
@@ -14,9 +14,10 @@ Or build it with Go environment yourself:
 $ go get -u github.com/mitnk/goixy
 ```
 
-## usage
+## Usage
 
-### config
+First, you need to create a config file for goixy. It locates at
+`~/.goixy/config.json`, and looks like this:
 
 ```
 $ cat ~/.goixy/config.json

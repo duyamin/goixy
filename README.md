@@ -14,7 +14,7 @@ Or build it with Go environment yourself:
 $ go get -u github.com/mitnk/goixy
 ```
 
-## Usage
+## usage
 
 First, you need to create a config file for goixy. It locates at
 `~/.goixy/config.json`, and looks like this:
@@ -51,6 +51,15 @@ use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 $ goixy
 [2017-06-18 14:58:36][0] goixy v1.7.1 without Direct Porxy
 [2017-06-18 14:58:36][0] listen on port: 127.0.0.1:1080
+```
+
+Now you can test it with curl:
+
+```bash
+$ curl -L -x 127.0.0.1:1080 hugo.wang/http/ip/
+1.2.3.4  # output should be the IP of host on which lightsocks is running
+$ curl -L hugo.wang/http/ip/
+111.112.113.114  # should be you local public IP
 ```
 
 ### see its help page

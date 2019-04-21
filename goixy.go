@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-redis/redis"
 	"github.com/mitnk/goutils/encrypt"
 	"github.com/orcaman/concurrent-map"
 )
@@ -35,24 +36,28 @@ type GoixyConfig struct {
 
 var GC GoixyConfig = GoixyConfig{}
 
-var VERSION = "1.7.1"
+var VERSION = "1.8.0"
 var KEY = []byte("")
 var DIRECT_KEY = []byte("")
 var COUNT_CONNECTED = 0
 var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
+var WITH_BLACK_LIST = false
 var SPAN_REPORT int64 = 600
 var SPAN_TIMEOUT int64 = 3600
 var TOTAL_BYTES int64 = 0
 
 var SERVER_INFO = cmap.New()
 var MUTEX = &sync.Mutex{}
+var REDIS_CLI *redis.Client = nil
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
-	with_direct := flag.Bool("withdirect", false,
+	with_black_list := flag.Bool("wbl", false,
+							 "Use balcklist (for HTTP only)")
+	with_direct := flag.Bool("wd", false,
 							 "Use Direct proxy (for HTTP Porxy only)")
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
@@ -75,7 +80,9 @@ func main() {
 		SPAN_TIMEOUT = 60
 	}
 	VERBOSE = *verbose
+	WITH_BLACK_LIST = *with_black_list
 	WITH_DIRECT = *with_direct
+	REDIS_CLI = get_redis_client()
 	loadRouterConfig()
 
 	local, err := net.Listen("tcp", *host+":"+*port)
@@ -208,7 +215,7 @@ func handleSocks(client net.Conn) {
 		return
 	}
 	sport = fmt.Sprintf("%d", binary.BigEndian.Uint16(buffer))
-	info("connect to server %s:%s", shost, sport)
+	info("socks target: %s:%s", shost, sport)
 
 	// reply to client to estanblish the socks v5 connection
 	client.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
@@ -256,9 +263,21 @@ func handleHTTP(client net.Conn, firstByte byte) {
 		sport = "80"
 		shost = u.Host
 	}
-	info("connect to server %s:%s", shost, sport)
-	rhost, rport, key := getRemoteInfo(shost, false)
+	if serverInBlackList(shost) {
+		info("closed for black site: %s", shost)
+		return
+	}
+	inc_ok_item_count(REDIS_CLI, shost)
 
+	var http_type string
+	if isForHTTPS {
+		http_type = "HTTPS"
+	} else {
+		http_type = "http"
+	}
+	info("[%s] target: %s:%s", http_type, shost, sport)
+
+	rhost, rport, key := getRemoteInfo(shost, false)
 	var d2c []byte
 	var d2r []byte
 	if isForHTTPS {
@@ -582,11 +601,94 @@ func loadRouterConfig() {
 	}
 }
 
+func get_redis_client() *redis.Client {
+	if !WITH_BLACK_LIST {
+		return nil
+	}
+	cli := redis.NewClient(&redis.Options{
+		Addr:     "127.0.0.1:6379",
+		Password: "", // no password set
+		DB:       7,  // use default DB
+	})
+	return cli
+}
+
+func get_black_list(cli *redis.Client) []string {
+	if !WITH_BLACK_LIST || cli == nil {
+		return nil
+	}
+	result, _ := cli.HKeys("blacklist").Result()
+	return result
+}
+
+func get_white_list(cli *redis.Client) []string {
+	if !WITH_BLACK_LIST || cli == nil {
+		return nil
+	}
+	result, _ := cli.HKeys("whitelist").Result()
+	return result
+}
+
+func inc_black_item_count(cli *redis.Client, s string) {
+	if !WITH_BLACK_LIST || cli == nil {
+		return
+	}
+	_, e := cli.HIncrBy("blacklist", s, 1).Result()
+	if e != nil {
+		info("HIncrBy error: %v", e)
+	}
+}
+
+func inc_ok_item_count(cli *redis.Client, s string) {
+	if !WITH_BLACK_LIST || cli == nil {
+		return
+	}
+	_, e := cli.HIncrBy("oklist", s, 1).Result()
+	if e != nil {
+		info("HIncrBy error: %v", e)
+	}
+}
+
+func is_in_white_list(cli *redis.Client, shost string) bool {
+	if !WITH_BLACK_LIST || cli == nil {
+		return false
+	}
+	item_list := get_white_list(REDIS_CLI)
+	for _, s := range item_list {
+		re := regexp.MustCompile(s)
+		s := re.FindString(shost)
+		if s != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func serverInList(shost string) bool {
 	for _, s := range GC.WhiteList {
 		re := regexp.MustCompile(s)
 		s := re.FindString(shost)
 		if s != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func serverInBlackList(shost string) bool {
+	if !WITH_BLACK_LIST {
+		return false
+	}
+	if is_in_white_list(REDIS_CLI, shost) {
+		return false
+	}
+
+	item_list := get_black_list(REDIS_CLI)
+	for _, s := range item_list {
+		re := regexp.MustCompile(s)
+		s := re.FindString(shost)
+		if s != "" {
+			inc_black_item_count(REDIS_CLI, s)
 			return true
 		}
 	}

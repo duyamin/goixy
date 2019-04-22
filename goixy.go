@@ -28,7 +28,7 @@ type GoixyConfig struct {
 	Host       string
 	Port       string
 	Key        string
-	Domains  []string
+	DomainList  []string
 	DirectHost string
 	DirectPort string
 	DirectKey  string
@@ -44,9 +44,7 @@ var DEBUG = false
 var VERBOSE = false
 var WITH_DIRECT = false
 var WITH_BLACK_LIST = false
-var SPAN_REPORT int64 = 600
 var SPAN_TIMEOUT int64 = 3600
-var TOTAL_BYTES int64 = 0
 
 var SERVER_INFO = cmap.New()
 var MUTEX = &sync.Mutex{}
@@ -61,7 +59,6 @@ func main() {
 							 "Use Direct proxy (for HTTP Porxy only)")
 	_debug := flag.Bool("v", false, "verbose")
 	verbose := flag.Bool("vv", false, "very verbose")
-	_span_report := flag.Int64("s", 600, "time span to print reports in seconds")
 	_span_timeout := flag.Int64("t", 3600, "time out on connections in seconds")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
@@ -71,10 +68,6 @@ func main() {
 	}
 	flag.Parse()
 	DEBUG = *_debug
-	SPAN_REPORT = *_span_report
-	if SPAN_REPORT < 10 {
-		SPAN_REPORT = 10
-	}
 	SPAN_TIMEOUT = *_span_timeout
 	if SPAN_TIMEOUT < 60 {
 		SPAN_TIMEOUT = 60
@@ -99,7 +92,6 @@ func main() {
 	info("goixy v%s %s Direct Porxy", VERSION, _with_or_not)
 	info("listen on port: %s:%s", *host, *port)
 
-	go printServersInfo()
 	for {
 		client, err := local.Accept()
 		if err != nil {
@@ -263,11 +255,13 @@ func handleHTTP(client net.Conn, firstByte byte) {
 		sport = "80"
 		shost = u.Host
 	}
-	if serverInBlackList(shost) {
+
+	if is_in_item_list("blacklist", shost) {
 		info("closed for black site: %s", shost)
 		return
 	}
-	inc_ok_item_count(REDIS_CLI, shost)
+
+	inc_item_count("oklist", shost)
 
 	var http_type string
 	if isForHTTPS {
@@ -300,7 +294,7 @@ func getRemoteInfo(shost string, is_socks bool) (string, string, []byte) {
 	rhost := ""
 	rport := ""
 	key := []byte("")
-	if !is_socks && WITH_DIRECT && !is_in_domains(shost) {
+	if !is_socks && WITH_DIRECT && !is_in_domain_list(shost) {
 		rhost = GC.DirectHost
 		rport = GC.DirectPort
 		key = DIRECT_KEY
@@ -403,7 +397,7 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string, key 
 		size := binary.BigEndian.Uint16(buffer)
 
 		keyServer := fmt.Sprintf("%s:%s", shost, sport)
-		incrServers(keyServer, int64(size))
+		inc_item_count_by("byteslist", keyServer, int64(size))
 
 		buffer = make([]byte, size)
 		_, err = io.ReadFull(conn, buffer)
@@ -417,9 +411,6 @@ func readDataFromRemote(ch chan []byte, conn net.Conn, shost, sport string, key 
 		}
 		n_bytes := len(data)
 		debug("[%s:%s] received %d bytes", shost, sport, n_bytes)
-		MUTEX.Lock()
-		TOTAL_BYTES += int64(n_bytes)
-		MUTEX.Unlock()
 		verbose("remote: %s", data)
 		ch <- data
 	}
@@ -490,48 +481,6 @@ func byteInArray(b byte, A []byte) bool {
 	return false
 }
 
-func printServersInfo() {
-	for {
-		select {
-		case <-time.After(time.Second * time.Duration(SPAN_REPORT)):
-			doPrintServersInfo()
-		}
-	}
-}
-
-func doPrintServersInfo() {
-	MUTEX.Lock()
-	defer MUTEX.Unlock()
-
-	ts_now := time.Now().Unix()
-	keys := SERVER_INFO.Keys()
-	total_bytes := fmtHumanBytes(TOTAL_BYTES)
-	info("[REPORT] %d connections and %s bytes", len(keys), total_bytes)
-	for i, key := range keys {
-		if tmp, ok := SERVER_INFO.Get(key); ok {
-			bytes := int64(0)
-			ts_span := int64(0)
-			conn_count := int64(0)
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("bytes"); ok {
-				bytes = tmp.(int64)
-			}
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("ts"); ok {
-				ts_span = ts_now - tmp.(int64)
-			}
-			if tmp, ok := tmp.(cmap.ConcurrentMap).Get("count"); ok {
-				conn_count = tmp.(int64)
-			}
-			str_bytes := fmtHumanBytes(bytes)
-			str_span := fmtTimeSpan(ts_span)
-			str_conn_count := ""
-			if conn_count > 1 {
-				str_conn_count = fmt.Sprintf("(%d)", conn_count)
-			}
-			info("[REPORT] [%d][%s] %s%s: %s", i, str_span, key, str_conn_count, str_bytes)
-		}
-	}
-}
-
 func initServers(key string, bytes int64) {
 	MUTEX.Lock()
 	defer MUTEX.Unlock()
@@ -547,17 +496,6 @@ func initServers(key string, bytes int64) {
 		m.Set("bytes", bytes)
 		m.Set("ts", now.Unix())
 		SERVER_INFO.Set(key, m)
-	}
-}
-
-func incrServers(key string, n int64) {
-	MUTEX.Lock()
-	defer MUTEX.Unlock()
-
-	if m, ok := SERVER_INFO.Get(key); ok {
-		if tmp, ok := m.(cmap.ConcurrentMap).Get("bytes"); ok {
-			m.(cmap.ConcurrentMap).Set("bytes", tmp.(int64)+n)
-		}
 	}
 }
 
@@ -613,111 +551,60 @@ func get_redis_client() *redis.Client {
 	return cli
 }
 
-func get_black_list(cli *redis.Client) []string {
-	if !WITH_BLACK_LIST || cli == nil {
-		return nil
-	}
-	result, _ := cli.HKeys("blacklist").Result()
-	return result
-}
-
-func get_white_list(cli *redis.Client) []string {
-	if !WITH_BLACK_LIST || cli == nil {
-		return nil
-	}
-	result, _ := cli.HKeys("whitelist").Result()
-	return result
-}
-
-func inc_black_item_count(cli *redis.Client, s string) {
-	if !WITH_BLACK_LIST || cli == nil {
+func inc_item_count(list_name, key string) {
+	if REDIS_CLI == nil {
 		return
 	}
-	_, e := cli.HIncrBy("blacklist", s, 1).Result()
-	if e != nil {
-		info("HIncrBy error: %v", e)
-	}
+	REDIS_CLI.HIncrBy(list_name, key, 1)
 }
 
-func inc_white_item_count(cli *redis.Client, s string) {
-	if !WITH_BLACK_LIST || cli == nil {
+func inc_item_count_by(list_name, key string, val int64) {
+	if REDIS_CLI == nil {
 		return
 	}
-	_, e := cli.HIncrBy("whitelist", s, 1).Result()
-	if e != nil {
-		info("HIncrBy error: %v", e)
-	}
+	REDIS_CLI.HIncrBy(list_name, key, val)
 }
 
-func inc_ok_item_count(cli *redis.Client, s string) {
-	if !WITH_BLACK_LIST || cli == nil {
-		return
-	}
-	_, e := cli.HIncrBy("oklist", s, 1).Result()
-	if e != nil {
-		info("HIncrBy error: %v", e)
-	}
-}
-
-func is_in_white_list(cli *redis.Client, shost string) bool {
-	if !WITH_BLACK_LIST || cli == nil {
+func is_in_item_list(list_name string, shost string) bool {
+	if !WITH_BLACK_LIST || REDIS_CLI == nil {
 		return false
 	}
-	item_list := get_white_list(REDIS_CLI)
+	if list_name == "blacklist" && is_in_item_list("whitelist", shost) {
+		return false
+	}
+
+	item_list := get_item_list(list_name)
 	for _, ptn := range item_list {
 		re := regexp.MustCompile(ptn)
 		s := re.FindString(shost)
 		if s != "" {
-			inc_white_item_count(REDIS_CLI, ptn)
+			inc_item_count(list_name, ptn)
 			return true
 		}
 	}
 	return false
 }
 
-func is_in_domains(shost string) bool {
-	for _, s := range GC.Domains {
+func get_item_list(list_name string) []string {
+	if !WITH_BLACK_LIST || REDIS_CLI == nil {
+		return nil
+	}
+	result, _ := REDIS_CLI.HKeys(list_name).Result()
+	return result
+}
+
+func is_in_domain_list(shost string) bool {
+	for _, s := range GC.DomainList {
 		re := regexp.MustCompile(s)
 		s := re.FindString(shost)
 		if s != "" {
 			return true
 		}
 	}
-	return false
-}
-
-func serverInBlackList(shost string) bool {
-	if !WITH_BLACK_LIST {
-		return false
-	}
-	if is_in_white_list(REDIS_CLI, shost) {
-		return false
-	}
-
-	item_list := get_black_list(REDIS_CLI)
-	for _, s := range item_list {
-		re := regexp.MustCompile(s)
-		s := re.FindString(shost)
-		if s != "" {
-			inc_black_item_count(REDIS_CLI, s)
-			return true
-		}
+	if is_in_item_list("domainlist", shost) {
+		return true
 	}
 	return false
-}
-
-func fmtHumanBytes(n_bytes int64) string {
-	str_bytes := ""
-	if n_bytes > 1024*1024*1024 {
-		str_bytes = fmt.Sprintf("%.2fG", float64(n_bytes)/(1024.0*1024.0*1024))
-	} else if n_bytes > 1024*1024 {
-		str_bytes = fmt.Sprintf("%.2fM", float64(n_bytes)/(1024.0*1024.0))
-	} else if n_bytes > 1024 {
-		str_bytes = fmt.Sprintf("%.2fK", float64(n_bytes)/1024.0)
-	} else {
-		str_bytes = fmt.Sprintf("%dB", n_bytes)
-	}
-	return str_bytes
 }
 
 func fmtTimeSpan(n_seconds int64) string {

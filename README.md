@@ -25,7 +25,7 @@ $ cat ~/.goixy/config.json
     "Host": "1.2.3.4",
     "Port": "5678",
     "Key": "your-lightsocks-secret-key",
-    "Domains": [
+    "DomainList": [
         "\\.google.*",
         ".*facebook\\.com"
     ],
@@ -107,8 +107,14 @@ r.delete('oklist')
 ### Listing
 
 ```
-$ py scripts/list-ok-list.py -h
-$ py scripts/list-ok-list.py --list ok
+$ py scripts/list-items.py -h
+$ py scripts/list-items.py --list ok
+```
+
+### Import items
+
+```
+$ py scripts/import-items.py -f blacklist.txt --list black
 ```
 
 ## lightsocks

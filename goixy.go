@@ -28,7 +28,7 @@ type GoixyConfig struct {
 	Host       string
 	Port       string
 	Key        string
-	WhiteList  []string
+	Domains  []string
 	DirectHost string
 	DirectPort string
 	DirectKey  string
@@ -300,14 +300,14 @@ func getRemoteInfo(shost string, is_socks bool) (string, string, []byte) {
 	rhost := ""
 	rport := ""
 	key := []byte("")
-	if is_socks || !WITH_DIRECT || serverInList(shost) {
-		rhost = GC.Host
-		rport = GC.Port
-		key = KEY
-	} else {
+	if !is_socks && WITH_DIRECT && !is_in_domains(shost) {
 		rhost = GC.DirectHost
 		rport = GC.DirectPort
 		key = DIRECT_KEY
+	} else {
+		rhost = GC.Host
+		rport = GC.Port
+		key = KEY
 	}
 	return rhost, rport, key
 }
@@ -639,6 +639,16 @@ func inc_black_item_count(cli *redis.Client, s string) {
 	}
 }
 
+func inc_white_item_count(cli *redis.Client, s string) {
+	if !WITH_BLACK_LIST || cli == nil {
+		return
+	}
+	_, e := cli.HIncrBy("whitelist", s, 1).Result()
+	if e != nil {
+		info("HIncrBy error: %v", e)
+	}
+}
+
 func inc_ok_item_count(cli *redis.Client, s string) {
 	if !WITH_BLACK_LIST || cli == nil {
 		return
@@ -654,18 +664,19 @@ func is_in_white_list(cli *redis.Client, shost string) bool {
 		return false
 	}
 	item_list := get_white_list(REDIS_CLI)
-	for _, s := range item_list {
-		re := regexp.MustCompile(s)
+	for _, ptn := range item_list {
+		re := regexp.MustCompile(ptn)
 		s := re.FindString(shost)
 		if s != "" {
+			inc_white_item_count(REDIS_CLI, ptn)
 			return true
 		}
 	}
 	return false
 }
 
-func serverInList(shost string) bool {
-	for _, s := range GC.WhiteList {
+func is_in_domains(shost string) bool {
+	for _, s := range GC.Domains {
 		re := regexp.MustCompile(s)
 		s := re.FindString(shost)
 		if s != "" {

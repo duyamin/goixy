@@ -25,7 +25,7 @@ $ cat ~/.goixy/config.json
     "Host": "1.2.3.4",
     "Port": "5678",
     "Key": "your-lightsocks-secret-key",
-    "WhiteList": [
+    "Domains": [
         "\\.google.*",
         ".*facebook\\.com"
     ],
@@ -42,7 +42,7 @@ You need to run [lightsocks](https://github.com/mitnk/lightsocks) on
 `-withdirect`.
 
 Goixy default does not use direct proxy, meaning all connections will
-use `Host:Port` proxy. If `-withdirect` is set, only `WhiteList` connections
+use `Host:Port` proxy. If `-withdirect` is set, only `Domains` connections
 use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 
 ### run it
@@ -66,7 +66,7 @@ $ curl -L hugo.wang/http/ip/
 
 ```
 $ goixy -h
-Usage of goixy v1.7.1
+Usage of goixy v1.8.0
 goixy [flags]
   -host string
         host (default "127.0.0.1")
@@ -79,13 +79,37 @@ goixy [flags]
   -v    verbose
   -vv
         very verbose
-  -withdirect
+  -wd
         Use Direct proxy (for HTTP Porxy only)
+  -wbl
+        Use Black List (for HTTP Porxy only)
 ```
 
-NOTE: currently `-withdirect` only supports HTTP Proxy. Even set
+NOTE: currently `-wd`, `-wbl` only supports HTTP Proxy. Even set
 `-withdirect`, accesses with Socks Porxy (i.e. `curl -x socks5://...`)
 will always use `Host:Port` proxy.
+
+## Blacklist Operations
+
+```
+$ ipy
+import redis
+
+r = redis.Redis(db=7)
+
+r.hincrby('blacklist', 'adanalytics.com')
+r.hincrby('whitelist', 'api.qq.com')
+
+r.hdel('blacklist', 'baidu.com')
+r.delete('oklist')
+```
+
+### Listing
+
+```
+$ py scripts/list-ok-list.py -h
+$ py scripts/list-ok-list.py --list ok
+```
 
 ## lightsocks
 

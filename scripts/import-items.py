@@ -10,6 +10,7 @@ def main(args):
             line = line.strip()
             if not line:
                 continue
+            # only count first part of each line
             line = line.split(' ')[0]
             r.hincrby(listname, line, 0)
 

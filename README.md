@@ -49,7 +49,7 @@ use `Host:Port` proxy, other traffic use `DirectHost:DirectPort` proxy.
 
 ```
 $ goixy
-[2017-06-18 14:58:36][0] goixy v1.7.1 without Direct Porxy
+[2017-06-18 14:58:36][0] goixy v1.8.0 without Direct Porxy
 [2017-06-18 14:58:36][0] listen on port: 127.0.0.1:1080
 ```
 
@@ -66,23 +66,25 @@ $ curl -L hugo.wang/http/ip/
 
 ```
 $ goixy -h
+
 Usage of goixy v1.8.0
-goixy [flags]
+goixy [FLAGS]
+
+  -db int
+        Redis DB index (default 7)
   -host string
         host (default "127.0.0.1")
   -port string
         port (default "1080")
-  -s int
-        time span to print reports in seconds (default 600)
   -t int
         time out on connections in seconds (default 3600)
-  -v    verbose
+  -v    verbose, print some debug info
   -vv
-        very verbose
+        very verbose, more debug info
+  -wbl
+        Use balcklist (for HTTP only)
   -wd
         Use Direct proxy (for HTTP Porxy only)
-  -wbl
-        Use Black List (for HTTP Porxy only)
 ```
 
 NOTE: currently `-wd`, `-wbl` only supports HTTP Proxy. Even set
@@ -92,28 +94,11 @@ will always use `Host:Port` proxy.
 ## Blacklist Operations
 
 ```
-$ ipy
-import redis
-
-r = redis.Redis(db=7)
-
-r.hincrby('blacklist', 'adanalytics.com')
-r.hincrby('whitelist', 'api.qq.com')
-
-r.hdel('blacklist', 'baidu.com')
-r.delete('oklist')
-```
-
-### Listing
-
-```
+$ py scripts/add-item.py -h
 $ py scripts/list-items.py -h
-$ py scripts/list-items.py --list ok
-```
+$ py scripts/import-items.py -h
 
-### Import items
-
-```
+# demo
 $ py scripts/import-items.py -f blacklist.txt --list black
 ```
 

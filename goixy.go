@@ -49,20 +49,20 @@ var SPAN_TIMEOUT int64 = 3600
 var SERVER_INFO = cmap.New()
 var MUTEX = &sync.Mutex{}
 var REDIS_CLI *redis.Client = nil
+var REDIS_DB = 7
 
 func main() {
 	host := flag.String("host", "127.0.0.1", "host")
 	port := flag.String("port", "1080", "port")
-	with_black_list := flag.Bool("wbl", false,
-							 "Use balcklist (for HTTP only)")
-	with_direct := flag.Bool("wd", false,
-							 "Use Direct proxy (for HTTP Porxy only)")
-	_debug := flag.Bool("v", false, "verbose")
-	verbose := flag.Bool("vv", false, "very verbose")
+	with_black_list := flag.Bool("wbl", false, "Use balcklist (for HTTP only)")
+	with_direct := flag.Bool("wd", false, "Use Direct proxy (for HTTP Porxy only)")
+	redis_db := flag.Int("db", 7, "Redis DB index")
+	_debug := flag.Bool("v", false, "verbose, print some debug info")
+	verbose := flag.Bool("vv", false, "very verbose, more debug info")
 	_span_timeout := flag.Int64("t", 3600, "time out on connections in seconds")
 	flag.Usage = func() {
 		fmt.Printf("Usage of goixy v%s\n", VERSION)
-		fmt.Printf("goixy [flags]\n")
+		fmt.Printf("goixy [FLAGS]\n\n")
 		flag.PrintDefaults()
 		os.Exit(0)
 	}
@@ -75,6 +75,8 @@ func main() {
 	VERBOSE = *verbose
 	WITH_BLACK_LIST = *with_black_list
 	WITH_DIRECT = *with_direct
+	REDIS_DB = *redis_db
+	// REDIS_CLI: let me be last call
 	REDIS_CLI = get_redis_client()
 	loadRouterConfig()
 
@@ -255,9 +257,8 @@ func handleHTTP(client net.Conn, firstByte byte) {
 		sport = "80"
 		shost = u.Host
 	}
-
 	if is_in_item_list("blacklist", shost) {
-		info("closed for black site: %s", shost)
+		info("closed black site: %s", shost)
 		return
 	}
 
@@ -546,7 +547,7 @@ func get_redis_client() *redis.Client {
 	cli := redis.NewClient(&redis.Options{
 		Addr:     "127.0.0.1:6379",
 		Password: "", // no password set
-		DB:       7,  // use default DB
+		DB:       REDIS_DB,
 	})
 	return cli
 }
@@ -576,8 +577,7 @@ func is_in_item_list(list_name string, shost string) bool {
 	item_list := get_item_list(list_name)
 	for _, ptn := range item_list {
 		re := regexp.MustCompile(ptn)
-		s := re.FindString(shost)
-		if s != "" {
+		if re.FindString(shost) != "" {
 			inc_item_count(list_name, ptn)
 			return true
 		}
